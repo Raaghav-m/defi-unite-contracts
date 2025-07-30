@@ -19,8 +19,6 @@ pub struct Immutables {
 #[starknet::interface]
 pub trait IBaseEscrow<TContractState> {
     fn withdraw(ref self: TContractState, secret: felt252, immutables: Immutables);
-    fn cancel(ref self: TContractState, immutables: Immutables);
-    fn rescue_funds(ref self: TContractState, token: Address, amount: u256, immutables: Immutables);
     fn get_RESCUE_DELAY(self: @TContractState) -> felt252;
     fn get_FACTORY(self: @TContractState) -> ContractAddress;
 }

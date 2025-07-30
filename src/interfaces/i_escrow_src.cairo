@@ -33,5 +33,4 @@ pub trait IEscrowSrc<TContractState> {
     /// Can only be called during the public cancellation period.
     /// Returns funds to the maker.
     /// @param immutables The immutable values used to deploy the escrow contract
-    fn public_cancel(ref self: TContractState, immutables: Immutables);
 }

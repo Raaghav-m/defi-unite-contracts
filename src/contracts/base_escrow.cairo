@@ -30,16 +30,6 @@ mod base_escrow {
         self.factory.write(get_caller_address());
     }
 
-    #[external]
-    fn rescue_funds(token: ContractAddress, amount: u256, immutables: Immutables) {
-        self.only_taker(immutables);
-        self.only_valid_immutables(immutables);
-        let delay = self.rescue_delay.read().into();
-        let start = TimelocksLib::rescue_start(immutables.timelocks, delay);
-        self.only_after(start);
-        self.uni_transfer(token, get_caller_address(), amount);
-        FundsRescued(token, amount);
-    }
 
     // ---------------- MODIFIERS ----------------
 

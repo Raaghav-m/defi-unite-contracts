@@ -2,11 +2,11 @@
 
 #[starknet::contract]
 pub mod Escrow {
-    use starknet::{ContractAddress, get_contract_address};
+    use starknet::{ContractAddress, get_contract_address, ClassHash};
     use starknet::storage::{StoragePointerReadAccess, StoragePointerWriteAccess};
     use core::traits::Into;
     use core::array::ArrayTrait;
-    use core::keccak::keccak_u256s_be_inputs;
+    use core::poseidon::poseidon_hash_span;
 
     use hello_starknet::interfaces::i_escrow::IEscrow;
     use hello_starknet::interfaces::i_base_escrow::Immutables;
@@ -18,6 +18,7 @@ pub mod Escrow {
         rescue_delay: felt252,
         factory: ContractAddress,
         proxy_bytecode_hash: felt252,
+        class_hash: ClassHash,
     }
 
     #[event]
@@ -33,9 +34,15 @@ pub mod Escrow {
     }
 
     #[constructor]
-    fn constructor(ref self: ContractState, rescue_delay: felt252, factory: ContractAddress) {
+    fn constructor(
+        ref self: ContractState, 
+        rescue_delay: felt252, 
+        factory: ContractAddress,
+        class_hash: ClassHash
+    ) {
         self.rescue_delay.write(rescue_delay);
         self.factory.write(factory);
+        self.class_hash.write(class_hash);
         
         // Compute proxy bytecode hash equivalent to Solidity's computeProxyBytecodeHash(address(this))
         let contract_address: felt252 = get_contract_address().into();
@@ -43,43 +50,6 @@ pub mod Escrow {
         self.proxy_bytecode_hash.write(proxy_hash);
     }
 
-    #[abi(embed_v0)]
-    impl EscrowImpl of IEscrow<ContractState> {
-        /// Returns the proxy bytecode hash
-        fn get_PROXY_BYTECODE_HASH(self: @ContractState) -> felt252 {
-            self.proxy_bytecode_hash.read()
-        }
-
-        // Base escrow functions - these would be implemented by concrete contracts
-        fn withdraw(ref self: ContractState, secret: felt252, immutables: Immutables) {
-            // This should be implemented by derived contracts
-            panic(array!['withdraw not implemented']);
-        }
-
-        fn cancel(ref self: ContractState, immutables: Immutables) {
-            // This should be implemented by derived contracts
-            panic(array!['cancel not implemented']);
-        }
-
-        fn rescue_funds(
-            ref self: ContractState, 
-            token: ContractAddress, 
-            amount: u256, 
-            immutables: Immutables
-        ) {
-            self._validate_immutables(immutables);
-            // Additional rescue funds logic would go here
-            self.emit(FundsRescued { token, amount });
-        }
-
-        fn get_RESCUE_DELAY(self: @ContractState) -> felt252 {
-            self.rescue_delay.read()
-        }
-
-        fn get_FACTORY(self: @ContractState) -> ContractAddress {
-            self.factory.read()
-        }
-    }
 
     #[generate_trait]
     impl EscrowInternalImpl of EscrowInternalTrait {
@@ -98,28 +68,43 @@ pub mod Escrow {
             assert(expected_address == current_address, 'Invalid immutables');
         }
 
-        /// Computes the contract address similar to Solidity's Create2.computeAddress
-        /// This is a simplified version - in practice you'd use Starknet's address computation
+        /// Computes the contract address using Starknet's native address computation
+        /// Similar to Solidity's Create2.computeAddress but adapted for Starknet
         fn _compute_address(
             self: @ContractState,
             salt: felt252,
             proxy_hash: felt252,
             factory: ContractAddress
         ) -> ContractAddress {
-            // This is a simplified implementation
-            // In Starknet, contract addresses are computed differently than Ethereum's CREATE2
-            // You would typically use the class hash, constructor calldata, and deployer address
+            // Use the stored class hash for address computation
+            let class_hash = self.class_hash.read();
             
-            // For now, we'll use a basic hash computation as placeholder
-            let mut data = ArrayTrait::new();
-            data.append(salt.into());
-            data.append(proxy_hash.into());
-            let factory_felt: felt252 = factory.into();
-            data.append(factory_felt.into());
+            // Create constructor calldata that matches what was used during deployment
+            let mut constructor_calldata = ArrayTrait::new();
+            constructor_calldata.append(self.rescue_delay.read());
+            constructor_calldata.append(factory.into());
+            constructor_calldata.append(class_hash.into());
             
-            let hash = keccak_u256s_be_inputs(data.span());
-            let address_felt: felt252 = hash.low.into();
-            address_felt.try_into().unwrap()
+            // Compute address using Starknet's standard formula:
+            // address = poseidon_hash([
+            //   "STARKNET_CONTRACT_ADDRESS",
+            //   deployer_address,
+            //   salt,
+            //   class_hash,
+            //   poseidon_hash(constructor_calldata)
+            // ]) mod FIELD_PRIME
+            
+            let constructor_calldata_hash = poseidon_hash_span(constructor_calldata.span());
+            
+            let mut address_data = ArrayTrait::new();
+            address_data.append('STARKNET_CONTRACT_ADDRESS'); // Standard prefix
+            address_data.append(factory.into()); // deployer address
+            address_data.append(salt);
+            address_data.append(class_hash.into());
+            address_data.append(constructor_calldata_hash);
+            
+            let computed_address = poseidon_hash_span(address_data.span());
+            computed_address.try_into().unwrap()
         }
     }
 }

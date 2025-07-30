@@ -7,7 +7,7 @@ pub mod EscrowFactory {
     use starknet::syscalls::deploy_syscall;
     use core::traits::Into;
     use core::array::ArrayTrait;
-    use core::keccak::keccak_u256s_be_inputs;
+    use core::poseidon::poseidon_hash_span;
 
     use hello_starknet::interfaces::i_escrow_factory::IEscrowFactory;
     use hello_starknet::interfaces::i_base_escrow::Immutables;
@@ -247,7 +247,7 @@ pub mod EscrowFactory {
             let mut constructor_calldata = ArrayTrait::new();
             constructor_calldata.append(rescue_delay);
             constructor_calldata.append(get_contract_address().into()); // factory address
-            constructor_calldata.append(access_token.into());
+            constructor_calldata.append(class_hash.into()); // class hash for address computation
             
             let salt = 'escrow_src_impl'; // Deterministic salt for implementation
             
@@ -272,7 +272,7 @@ pub mod EscrowFactory {
             let mut constructor_calldata = ArrayTrait::new();
             constructor_calldata.append(rescue_delay);
             constructor_calldata.append(get_contract_address().into()); // factory address
-            constructor_calldata.append(access_token.into());
+            constructor_calldata.append(class_hash.into()); // class hash for address computation
             
             let salt = 'escrow_dst_impl'; // Deterministic salt for implementation
             
@@ -302,11 +302,8 @@ pub mod EscrowFactory {
             // Simplified implementation - in real contract you'd parse extraData properly
             let extra_data_args = self._parse_extra_data(@extra_data);
 
-            let hashlock = if self._allow_multiple_fills(order.maker_traits) {
-                self._handle_partial_fill(order_hash, extra_data_args, making_amount, remaining_making_amount, order.making_amount)
-            } else {
-                extra_data_args.hashlock_info
-            };
+            let hashlock = 
+                extra_data_args.hashlock_info;
 
             let immutables = Immutables {
                 order_hash,
@@ -347,32 +344,7 @@ pub mod EscrowFactory {
             // assert(IERC20::balance_of(order.maker_asset, escrow) >= making_amount, 'Insufficient token balance');
         }
 
-        /// Handles partial fill validation for orders that allow multiple fills
-        fn _handle_partial_fill(
-            ref self: ContractState,
-            order_hash: felt252,
-            extra_data_args: ExtraDataArgs,
-            making_amount: u256,
-            remaining_making_amount: u256,
-            order_making_amount: u256
-        ) -> felt252 {
-            let parts_amount: u256 = 2; // Simplified - normally would extract from hashlock_info
-            assert(parts_amount >= 2, 'Invalid secrets amount');
-
-            let _key = self._compute_key(order_hash, extra_data_args.hashlock_info);
-            let validated = ValidationData { leaf: 0, index: 0 }; // Simplified for now
-            
-            let is_valid = self._is_valid_partial_fill(
-                making_amount,
-                remaining_making_amount,
-                order_making_amount,
-                parts_amount,
-                validated.index
-            );
-            assert(is_valid, 'Invalid partial fill');
-
-            validated.leaf
-        }
+        
 
         /// Deploys a new escrow contract using Starknet's deploy syscall
         fn _deploy_escrow(
@@ -394,38 +366,6 @@ pub mod EscrowFactory {
             escrow_address
         }
 
-        /// Validates partial fill logic
-        fn _is_valid_partial_fill(
-            self: @ContractState,
-            making_amount: u256,
-            remaining_making_amount: u256,
-            order_making_amount: u256,
-            parts_amount: u256,
-            validated_index: u256
-        ) -> bool {
-            let calculated_index = (order_making_amount - remaining_making_amount + making_amount - 1) * parts_amount / order_making_amount;
-
-            if remaining_making_amount == making_amount {
-                // Order filled to completion
-                return calculated_index + 2 == validated_index;
-            } else if order_making_amount != remaining_making_amount {
-                // Not the first fill
-                let prev_calculated_index = (order_making_amount - remaining_making_amount - 1) * parts_amount / order_making_amount;
-                if calculated_index == prev_calculated_index {
-                    return false;
-                }
-            }
-
-            calculated_index + 1 == validated_index
-        }
-
-        /// Checks if order allows multiple fills
-        fn _allow_multiple_fills(self: @ContractState, maker_traits: u256) -> bool {
-            // Simplified implementation of MakerTraitsLib.allowMultipleFills
-            // Check if the least significant bit is set
-            let (_, remainder) = DivRem::div_rem(maker_traits, 2_u256.try_into().unwrap());
-            remainder != 0
-        }
 
         /// Parses extra data into structured format
         fn _parse_extra_data(self: @ContractState, extra_data: @Array<felt252>) -> ExtraDataArgs {
@@ -439,26 +379,48 @@ pub mod EscrowFactory {
             }
         }
 
-        /// Computes key for validation data storage
+        /// Computes key for validation data storage using Poseidon hash
         fn _compute_key(self: @ContractState, order_hash: felt252, hashlock_info: felt252) -> felt252 {
             let mut data = ArrayTrait::new();
-            data.append(order_hash.into());
-            data.append(hashlock_info.into());
-            let hash = keccak_u256s_be_inputs(data.span());
-            hash.low.into()
+            data.append(order_hash);
+            data.append(hashlock_info);
+            
+            poseidon_hash_span(data.span())
         }
 
-        /// Computes deterministic address similar to Solidity's CREATE2
+        /// Computes deterministic address using Starknet's native address computation
         fn _compute_address(self: @ContractState, salt: felt252, proxy_hash: felt252) -> ContractAddress {
-            let mut data = ArrayTrait::new();
-            data.append(salt.into());
-            data.append(proxy_hash.into());
-            let contract_addr: felt252 = get_contract_address().into();
-            data.append(contract_addr.into());
+            // Use the appropriate class hash based on which type of escrow we're computing
+            let class_hash = if proxy_hash == self.proxy_src_bytecode_hash.read() {
+                self.escrow_src_class_hash.read()
+            } else {
+                self.escrow_dst_class_hash.read()
+            };
             
-            let hash = keccak_u256s_be_inputs(data.span());
-            let address_felt: felt252 = hash.low.into();
-            address_felt.try_into().unwrap()
+            // Create constructor calldata that matches what was used during deployment
+            let mut constructor_calldata = ArrayTrait::new();
+            let rescue_delay = if proxy_hash == self.proxy_src_bytecode_hash.read() {
+                self.rescue_delay_src.read()
+            } else {
+                self.rescue_delay_dst.read()
+            };
+            
+            constructor_calldata.append(rescue_delay);
+            constructor_calldata.append(get_contract_address().into()); // factory address
+            constructor_calldata.append(class_hash.into()); // class hash
+            
+            // Compute address using Starknet's standard formula
+            let constructor_calldata_hash = poseidon_hash_span(constructor_calldata.span());
+            
+            let mut address_data = ArrayTrait::new();
+            address_data.append('STARKNET_CONTRACT_ADDRESS'); // Standard prefix
+            address_data.append(get_contract_address().into()); // deployer address (factory)
+            address_data.append(salt);
+            address_data.append(class_hash.into());
+            address_data.append(constructor_calldata_hash);
+            
+            let computed_address = poseidon_hash_span(address_data.span());
+            computed_address.try_into().unwrap()
         }
 
         /// Gets the limit order protocol address

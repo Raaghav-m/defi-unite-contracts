@@ -194,11 +194,7 @@ pub mod BaseEscrowFactory {
             // Simplified implementation - in real contract you'd parse extraData properly
             let extra_data_args = self._parse_extra_data(@extra_data);
 
-            let hashlock = if self._allow_multiple_fills(order.maker_traits) {
-                self._handle_partial_fill(order_hash, extra_data_args, making_amount, remaining_making_amount, order.making_amount)
-            } else {
-                extra_data_args.hashlock_info
-            };
+            let hashlock = extra_data_args.hashlock_info;
 
             let immutables = Immutables {
                 order_hash,
@@ -240,31 +236,6 @@ pub mod BaseEscrowFactory {
         }
 
         /// Handles partial fill validation for orders that allow multiple fills
-        fn _handle_partial_fill(
-            ref self: ContractState,
-            order_hash: felt252,
-            extra_data_args: ExtraDataArgs,
-            making_amount: u256,
-            remaining_making_amount: u256,
-            order_making_amount: u256
-        ) -> felt252 {
-            let parts_amount: u256 = 2; // Simplified - normally would extract from hashlock_info
-            assert(parts_amount >= 2, 'Invalid secrets amount');
-
-            let _key = self._compute_key(order_hash, extra_data_args.hashlock_info);
-            let validated = ValidationData { leaf: 0, index: 0 }; // Simplified for now
-            
-            let is_valid = self._is_valid_partial_fill(
-                making_amount,
-                remaining_making_amount,
-                order_making_amount,
-                parts_amount,
-                validated.index
-            );
-            assert(is_valid, 'Invalid partial fill');
-
-            validated.leaf
-        }
 
         /// Deploys a new escrow contract using Starknet's deploy syscall
         fn _deploy_escrow(
@@ -286,38 +257,7 @@ pub mod BaseEscrowFactory {
             escrow_address
         }
 
-        /// Validates partial fill logic
-        fn _is_valid_partial_fill(
-            self: @ContractState,
-            making_amount: u256,
-            remaining_making_amount: u256,
-            order_making_amount: u256,
-            parts_amount: u256,
-            validated_index: u256
-        ) -> bool {
-            let calculated_index = (order_making_amount - remaining_making_amount + making_amount - 1) * parts_amount / order_making_amount;
-
-            if remaining_making_amount == making_amount {
-                // Order filled to completion
-                return calculated_index + 2 == validated_index;
-            } else if order_making_amount != remaining_making_amount {
-                // Not the first fill
-                let prev_calculated_index = (order_making_amount - remaining_making_amount - 1) * parts_amount / order_making_amount;
-                if calculated_index == prev_calculated_index {
-                    return false;
-                }
-            }
-
-            calculated_index + 1 == validated_index
-        }
-
-        /// Checks if order allows multiple fills
-        fn _allow_multiple_fills(self: @ContractState, maker_traits: u256) -> bool {
-            // Simplified implementation of MakerTraitsLib.allowMultipleFills
-            // Check if the least significant bit is set
-            let (_, remainder) = DivRem::div_rem(maker_traits, 2_u256.try_into().unwrap());
-            remainder != 0
-        }
+        
 
         /// Parses extra data into structured format
         fn _parse_extra_data(self: @ContractState, extra_data: @Array<felt252>) -> ExtraDataArgs {

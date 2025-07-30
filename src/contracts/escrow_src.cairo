@@ -158,26 +158,9 @@ pub mod EscrowSrc {
             });
         }
 
-        /// See {IEscrowSrc-public_cancel}.
         /// The function works on the time intervals highlighted with capital letters:
         /// ---- contract deployed --/-- finality --/-- private withdrawal --/-- public withdrawal --/--
         /// --/-- private cancellation --/-- PUBLIC CANCELLATION ----
-        fn public_cancel(ref self: ContractState, immutables: Immutables) {
-            // Validate caller has access token
-            self._only_access_token_holder();
-            
-            // Validate timing - after src public cancellation
-            let public_cancellation_time = TimelocksLib::get(immutables.timelocks, Stage::SrcPublicCancellation);
-            self._only_after(public_cancellation_time.into());
-
-            // Cancel and return funds to maker
-            self._cancel(immutables);
-            
-            self.emit(PublicCancellation {
-                maker: immutables.maker,
-                amount: immutables.amount,
-            });
-        }
     }
 
     // Note: We don't implement IBaseEscrow directly to avoid conflicts
@@ -188,46 +171,6 @@ pub mod EscrowSrc {
         fn base_withdraw(ref self: ContractState, secret: felt252, immutables: Immutables) {
             // Delegate to EscrowSrc withdraw
             EscrowSrcImpl::withdraw(ref self, secret, immutables);
-        }
-
-        fn base_cancel(ref self: ContractState, immutables: Immutables) {
-            // Validate caller is taker
-            self._only_taker(immutables);
-            
-            // Validate timing - after src cancellation
-            let cancellation_time = TimelocksLib::get(immutables.timelocks, Stage::SrcCancellation);
-            self._only_after(cancellation_time.into());
-
-            // Cancel and return funds to maker
-            self._cancel(immutables);
-        }
-
-        fn base_rescue_funds(ref self: ContractState, token: ContractAddress, amount: u256, immutables: Immutables) {
-            // Only factory can rescue funds after rescue delay
-            let caller = get_caller_address();
-            let factory = self.factory.read();
-            assert(caller == factory, 'Only factory can rescue');
-
-            let current_time = get_block_timestamp();
-            let deployed_at = self.deployed_at.read();
-            let rescue_delay = self.rescue_delay.read();
-            
-            assert(current_time >= deployed_at + rescue_delay.into(), 'Rescue delay not passed');
-
-            // TODO: Implement token transfer
-            // if token == 0.try_into().unwrap() {
-            //     // Native token rescue
-            //     self._eth_transfer(factory, amount);
-            // } else {
-            //     // ERC20 token rescue
-            //     IERC20::transfer(token, factory, amount);
-            // }
-
-            self.emit(RescueFunds {
-                token,
-                amount,
-                to: factory,
-            });
         }
 
         fn get_RESCUE_DELAY(self: @ContractState) -> felt252 {
@@ -243,8 +186,6 @@ pub mod EscrowSrc {
     #[starknet::interface]
     trait IBaseEscrowAccess<TContractState> {
         fn base_withdraw(ref self: TContractState, secret: felt252, immutables: Immutables);
-        fn base_cancel(ref self: TContractState, immutables: Immutables);
-        fn base_rescue_funds(ref self: TContractState, token: ContractAddress, amount: u256, immutables: Immutables);
         fn get_RESCUE_DELAY(self: @TContractState) -> felt252;
         fn get_FACTORY(self: @TContractState) -> ContractAddress;
     }
@@ -289,28 +230,6 @@ pub mod EscrowSrc {
 
         /// Transfers ERC20 tokens to the maker and native tokens to the caller.
         /// @param immutables The immutable values used to deploy the clone contract.
-        fn _cancel(ref self: ContractState, immutables: Immutables) {
-            // Validate immutables
-            self._only_valid_immutables(immutables);
-
-            // Transfer ERC20 tokens back to maker
-            if immutables.token != 0.try_into().unwrap() {
-                // TODO: Implement ERC20 transfer
-                // IERC20::transfer(immutables.token, immutables.maker, immutables.amount);
-            }
-
-            // Transfer safety deposit (native tokens) to caller
-            let _caller = get_caller_address();
-            if immutables.safety_deposit > 0 {
-                // TODO: Implement native token transfer
-                // self._eth_transfer(caller, immutables.safety_deposit);
-            }
-
-            self.emit(EscrowCancelled {
-                maker: immutables.maker,
-                amount: immutables.amount,
-            });
-        }
 
         /// Validates that caller is the taker
         fn _only_taker(self: @ContractState, immutables: Immutables) {

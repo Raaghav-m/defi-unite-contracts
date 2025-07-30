@@ -26,24 +26,15 @@ pub mod EscrowDst {
     #[event]
     #[derive(Drop, starknet::Event)]
     enum Event {
-        FundsRescued: FundsRescued,
         EscrowWithdrawal: EscrowWithdrawal,
-        EscrowCancelled: EscrowCancelled,
     }
 
-    #[derive(Drop, starknet::Event)]
-    struct FundsRescued {
-        token: ContractAddress,
-        amount: u256,
-    }
 
     #[derive(Drop, starknet::Event)]
     struct EscrowWithdrawal {
         secret: felt252,
     }
 
-    #[derive(Drop, starknet::Event)]
-    struct EscrowCancelled {}
 
     #[constructor]
     fn constructor(
@@ -100,34 +91,7 @@ pub mod EscrowDst {
         /// See {IBaseEscrow-cancel}.
         /// The function works on the time interval highlighted with capital letters:
         /// ---- contract deployed --/-- finality --/-- private withdrawal --/-- public withdrawal --/-- PRIVATE CANCELLATION ----
-        fn cancel(ref self: ContractState, immutables: Immutables) {
-            self._only_taker(@immutables);
-            self._only_valid_immutables(@immutables);
-            self._only_after(TimelocksLib::get(immutables.timelocks, Stage::DstCancellation));
-            
-            // Transfer tokens back to taker and safety deposit to caller
-            self._uni_transfer(immutables.token, immutables.taker, immutables.amount);
-            self._eth_transfer(get_caller_address(), immutables.safety_deposit);
-            
-            self.emit(EscrowCancelled {});
-        }
 
-        fn rescue_funds(
-            ref self: ContractState, 
-            token: ContractAddress, 
-            amount: u256, 
-            immutables: Immutables
-        ) {
-            self._only_taker(@immutables);
-            self._only_valid_immutables(@immutables);
-            
-            let delay = self.rescue_delay.read();
-            let start = TimelocksLib::rescue_start(immutables.timelocks, delay);
-            self._only_after(start);
-            
-            self._uni_transfer(token, get_caller_address(), amount);
-            self.emit(FundsRescued { token, amount });
-        }
 
         fn get_RESCUE_DELAY(self: @ContractState) -> felt252 {
             self.rescue_delay.read()

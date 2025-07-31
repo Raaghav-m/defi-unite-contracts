@@ -1,0 +1,25 @@
+{
+  "name": "starknet-escrow-dst-tester",
+  "version": "1.0.0",
+  "description": "Node.js test suite for Starknet EscrowDst contract using Starknet.js",
+  "type": "module",
+  "main": "test_escrow_dst_starknet.js",
+  "scripts": {
+  },
+  "dependencies": {
+    "starknet": "^6.0.0",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0"
+  },
+  "keywords": [
+    "starknet",
+    "cairo",
+    "escrow",
+    "cross-chain",
+    "defi"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
+}

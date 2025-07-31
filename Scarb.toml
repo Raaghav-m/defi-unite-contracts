@@ -7,6 +7,8 @@ edition = "2024_07"
 
 [dependencies]
 starknet = "2.11.4"
+openzeppelin_access = "2.0.0"
+openzeppelin_token = "2.0.0"
 
 [dev-dependencies]
 snforge_std = "0.45.0"
@@ -14,6 +16,7 @@ assert_macros = "2.11.4"
 
 [[target.starknet-contract]]
 sierra = true
+casm = true
 
 [scripts]
 test = "snforge test"
@@ -29,7 +32,7 @@ allow-prebuilt-plugins = ["snforge_std"]
 # fuzzer_seed = 1111                                         # Seed for the random fuzzer
 
 [tool.snforge]
-exit_first = true
+# exit_first = true
 
 # [[tool.snforge.fork]]                                      # Used for fork testing
 # name = "SOME_NAME"                                         # Fork name

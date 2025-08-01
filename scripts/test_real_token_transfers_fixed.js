@@ -51,8 +51,8 @@ class RealTokenTransferTester {
 
         try {
             // Load compiled contract files
-            const compiledTestSierra = json.parse(fs.readFileSync('../defi-unite-contracts/target/dev/hello_starknet_EscrowDst.contract_class.json').toString('ascii'));
-            const compiledTestCasm = json.parse(fs.readFileSync('../defi-unite-contracts/target/dev/hello_starknet_EscrowDst.compiled_contract_class.json').toString('ascii'));
+            const compiledTestSierra = json.parse(fs.readFileSync('../target/dev/hello_starknet_EscrowDst.contract_class.json').toString('ascii'));
+            const compiledTestCasm = json.parse(fs.readFileSync('../target/dev/hello_starknet_EscrowDst.compiled_contract_class.json').toString('ascii'));
 
             // Deploy the contract using declareAndDeploy
             const deployResponse = await this.account.declareAndDeploy({
